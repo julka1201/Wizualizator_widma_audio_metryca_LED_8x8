@@ -14,6 +14,8 @@
 #define PIN_PIN16_MATRYCA 19
 unsigned long poprzednie_wskazanie_czasu=0;
 const int piny_kolumn[8]={32,33,25,26,27,16,17,19};
+int wysokosci_kolumn[8]={0,0,0,0,0,0,0,0};
+
 void setup() {
   pinMode(PIN_AO_CZ_DZWIEKU, INPUT);
   pinMode(PIN_POTENCJOMETR, INPUT);
@@ -34,36 +36,58 @@ void setup() {
   Serial.begin(115200);
 }
 /* 
-Zbierasz próbki z mikrofonu za pomocą przetwornika ADC, a następnie wykorzystujesz algorytm FFT, aby rozbić falę dźwiękową na poszczególne 
-pasma częstotliwości (basy, tony średnie, soprany). Wynik wyświetlasz jako dynamicznie skaczące słupki na swojej matrycy LED 8x8.
+Wskaźnik wysterowania z potencjometrem - dynamiczna zmiana obrazu na matrycy w zależności od wejścia analogowego z potencjometru
 A: wyswietlanie wiersz po wierszu (budowanie do gory), zaqpalone w kazdym wierszu wszystkie kolumny, tak aby ostateczna wysokosc prostokata
-odpowiadala wysokosci tonu*/
+odpowiadala wysokosci tonu
+B"
+
+*/
 void loop() {
-  int wskazanie_potencjometru=analogRead(PIN_POTENCJOMETR);
-  Serial.printf (">Potencjometr: %d\n", wskazanie_potencjometru);
+  unsigned long aktualne_wskazanie_czasu =millis();
+  if (aktualne_wskazanie_czasu-poprzednie_wskazanie_czasu>100){
+  int aktualne_wskazanie_potencjometru=analogRead(PIN_POTENCJOMETR);
+  Serial.printf (">Potencjometr: %d\n", aktualne_wskazanie_potencjometru);
+  int wysokosc_slupka=map(aktualne_wskazanie_potencjometru, 0, 4095, 0, 8);
+  for (int i=7; i>0; i--){
+    wysokosci_kolumn[i]=wysokosci_kolumn[i-1];
+  }
+  wysokosci_kolumn[0]=wysokosc_slupka;
+  poprzednie_wskazanie_czasu=aktualne_wskazanie_czasu;
+  }
+  // wysokosci kolumn= {1,3,5,4,3,0,1,0}
   byte bit_domyslny=0b00000000;
-  int wysokosc_slupka=map(wskazanie_potencjometru, 0, 4095, 0, 8);
-  if (wysokosc_slupka != 0) {
-      for (int i=0; i<=7; i++){
-    digitalWrite(piny_kolumn[i], LOW);
+  int najwiekszy_slupek=0;
+  for (int i=0; i<=7; i++){
+    if (wysokosci_kolumn[i]>najwiekszy_slupek){
+      najwiekszy_slupek=wysokosci_kolumn[i];
+    }
   }
-        for (int i = 0; i < wysokosc_slupka; i++) {
-            uint8_t bit_domyslny_do_wyslania = (bit_domyslny | 1)<<i;
-            digitalWrite(PIN_STCP_REJESTR, LOW);
-            shiftOut(PIN_DS_REJESTR, PIN_SHCP_REJESTR, LSBFIRST, bit_domyslny_do_wyslania);
-            digitalWrite(PIN_STCP_REJESTR, HIGH);
-            delay(2);
+  for (int k=0; k<najwiekszy_slupek; k++) //0,1,2,3,4
+  //k=0 to pierwszy wiersz
+  {
+    for (int i=0; i<=7; i++){
+    digitalWrite(piny_kolumn[i], HIGH);
+    }
+    byte bajt_do_wyslania=(bit_domyslny|1)<<k;
+    digitalWrite(PIN_STCP_REJESTR, LOW);
+    shiftOut(PIN_DS_REJESTR, PIN_SHCP_REJESTR, LSBFIRST, bajt_do_wyslania);
+    digitalWrite(PIN_STCP_REJESTR, HIGH);
+    for (int i=0; i<=7; i++){
+      if (wysokosci_kolumn[i]>k){
+        digitalWrite(piny_kolumn[i], LOW);
+        }
+      else{
+        digitalWrite(piny_kolumn[i], HIGH);
+        }
+    }
+    delay(2);
   }
-  }
-  digitalWrite(PIN_STCP_REJESTR, LOW);
-  shiftOut(PIN_DS_REJESTR, PIN_SHCP_REJESTR, LSBFIRST, bit_domyslny);
-  digitalWrite(PIN_STCP_REJESTR, HIGH);
-  }
+digitalWrite(PIN_STCP_REJESTR, LOW);
+shiftOut(PIN_DS_REJESTR, PIN_SHCP_REJESTR, LSBFIRST, bit_domyslny);
+digitalWrite(PIN_STCP_REJESTR, HIGH);
+}
 
 
-
-  //poprzednie_wskazanie_czasu=aktualne_wskazanie_czasu;
-//}
 
 
 
