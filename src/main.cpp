@@ -15,8 +15,8 @@
 unsigned long poprzednie_wskazanie_czasu=0;
 const int piny_kolumn[8]={32,33,25,26,27,16,17,19};
 struct LiczbaZespolona {
-    double rzeczywista; // to bedzie w calosci napisane
-    double urojona=0; //a to roznie wiec lepiej zainicjowac chyba
+    double rzeczywista;
+    double urojona;
 };
 const int liczba_probek=64;
 float probki_zebrane[liczba_probek];
@@ -24,34 +24,25 @@ LiczbaZespolona tablica_wartosci_poprzestawianych_bitami[liczba_probek];
 int fs=8000;
 int indeks=0;
 int rozdzielczosc=fs/liczba_probek;
-float odstep_czasowy=1.0/fs;
+float odstep_czasowy_w_micro_sekundach=(1.0/fs)*1000000;
 float sinusy[liczba_probek/2]={0};
 float cosinusy[liczba_probek/2]={0};
-/*float odstep_czasowy = 1 / 8000;. W języku C++ dzielenie dwóch liczb całkowitych daje w wyniku liczbę całkowitą, więc procesor zignoruje 
-ułamek i zapisze tam okrągłe 0.0. Żeby zmusić go do ułamków, musisz zapisać liczby z kropką dziesiętną (np. 1.0).*/
 const int liczba_kolumn_matrycy=8;
-float granice_dla_poszczegolnych_kolumn[liczba_kolumn_matrycy]; //granice czestotliwosci, wiec tez ile slupkow z widma brac pod uwage do kazdej kolumny
+float granice_dla_poszczegolnych_kolumn[liczba_kolumn_matrycy];
 int pierwszy_uzyteczny_indeks_FFT=1;
+
 void bit_reversal (int ilosc_probek, byte* tab_bitow_po_odwroceniu){
   int na_ilu_bitach=log2(ilosc_probek);
   byte tab_bitow_przed_odwroceniem[ilosc_probek];
-  byte maska =(0b00000001<<na_ilu_bitach)-1;// da najwieksza liczbe jaka mozna zapisac na tylu bitach ile chemy docelowo np 00000111 jesli na 3
+  byte maska =(0b00000001<<na_ilu_bitach)-1;
   for (int i=0; i<ilosc_probek; i++){
     tab_bitow_przed_odwroceniem[i]=maska&i;
   }
-
-  //byte tab_bitow_po_odwroceniu[ilosc_probek];
-  /*tab_bitow_przed_odwroceniem[ilosc_probek]={0};. Ponieważ ilosc_probek jest zmienną, kompilator widzi tu tablicę o zmiennym rozmiarze 
-  i zabroni dodania na końcu ={0}.Rozwiązanie: Zadeklaruj tablice bez ={0}. Zauważ, że i tak w pętlach nadpisujesz każdy jeden element w tych 
-  tablicach od nowa, więc początkowe zerowanie ich przy tworzeniu nie jest Ci w ogóle potrzebne.
-  Jeśli planujesz na każdej jednej stronie nakleić nową, dużą naklejkę, to zmazywanie starego tekstu gumką to strata czasu. 
-  I tak wszystko dokładnie zakryjesz!*/
-
       for (int i=0; i<ilosc_probek; i++){
         byte analizowany_bajt=tab_bitow_przed_odwroceniem[i];
         byte odwrocony_bajt=0;
         for (int j=0; j<na_ilu_bitach; j++){
-          odwrocony_bajt=odwrocony_bajt<<1; // odwrocony_bajt<<=1;
+          odwrocony_bajt=odwrocony_bajt<<1;
           odwrocony_bajt|=analizowany_bajt&1;
           analizowany_bajt>>=1;
         }
@@ -94,7 +85,7 @@ void setup() {
 
 void loop() {
 unsigned long aktualne_wskazanie_czasu=micros();
-if (aktualne_wskazanie_czasu-poprzednie_wskazanie_czasu>=125){
+if (aktualne_wskazanie_czasu-poprzednie_wskazanie_czasu>=odstep_czasowy_w_micro_sekundach){
 probki_zebrane[indeks]=analogRead(PIN_AO_CZ_DZWIEKU);
 indeks++;
 poprzednie_wskazanie_czasu=aktualne_wskazanie_czasu;
@@ -119,14 +110,6 @@ for (int L=2; L<=liczba_probek; L*=2){
     int m=0;
     for (int i=indeks_poczatku_dla_kolejnej_grupy; (i+skok_w_danej_grupie)<(L*(g+1)); i++){
       int potega=m*(liczba_probek/L);
-      /*
-      mnożenie dwóch liczb zespolonych wygląda tak:$$(a + bi) \cdot (c - di) = (ac + bd) + (bc - ad)i$$
-      Przekładając to na Twój algorytm:
-      $a$ = probka_B.rzeczywista
-      $b$ = probka_B.urojona
-      $c$ = cosinusy[potega]
-      $d$ = sinusy[potega]
-      */
       float probka_A_rzeczywista=tablica_wartosci_poprzestawianych_bitami[i].rzeczywista;
       float probka_A_urojona=tablica_wartosci_poprzestawianych_bitami[i].urojona;
       float probka_B_rzeczywista=tablica_wartosci_poprzestawianych_bitami[i+skok_w_danej_grupie].rzeczywista;
@@ -148,28 +131,14 @@ for (int L=2; L<=liczba_probek; L*=2){
 
   //wewnetrzna petla for musi dotyczyc czegos z indeksacja wewnatrz tych pomniejszych grup i operacji na nich, motyki tez
 }
-float widmo_tab[liczba_probek/2];
-for (int i=0; i<liczba_probek/2; i++){
+float widmo_tab[(liczba_probek/2)+1];
+for (int i=0; i<=liczba_probek/2; i++){
   float re=tablica_wartosci_poprzestawianych_bitami[i].rzeczywista;
   float im=tablica_wartosci_poprzestawianych_bitami[i].urojona;
   float widmo=sqrt((re*re)+(im*im));
   widmo_tab[i]=widmo;
 }
 
-/*
-Węższe pasma (mniej prążków FFT) przypisujesz do pierwszych kolumn LED (basy), a coraz szersze pasma (więcej prążków FFT) wrzucasz do wyższych 
-kolumn (soprany). Dzięki temu cała matryca będzie żywo reagować na muzykę.
-$$f_n = f_{min} \cdot \left( \frac{f_{max}}{f_{min}} \right)^{\frac{n}{N}}$$Gdzie:
-$f_n$ to górna częstotliwość $n$-tego przedziału.
-$f_{min}$ to najniższa częstotliwość, od jakiej zaczynamy pomiary (np. 100 Hz).
-$f_{max}$ to najwyższa częstotliwość, na jakiej kończymy (np. 8000 Hz).
-$N$ to całkowita liczba słupków (przedziałów), na które chcesz podzielić dźwięk (np. 8).
-$n$ to numer konkretnego słupka, którego granicę właśnie wyliczasz (od 1 do $N$).
-
-Kiedy już wiesz, które indeksy wchodzą w skład danej kolumny, pojawia się pytanie: jak połączyć kilka liczb z FFT w jedną wartość słupka? 
-Możesz wyciągnąć średnią, ale dużo lepszy efekt wizualny daje wyciągnięcie wartości maksymalnej z danej grupy. Dzięki temu słupek 
-od razu reaguje na ostry dźwięk i nie jest "spłaszczany" przez sąsiednie, cichsze częstotliwości.
-*/
 int j=pierwszy_uzyteczny_indeks_FFT;
 float widmo_tab_uporzadkowane[liczba_kolumn_matrycy];
 for (int i=0; i<liczba_kolumn_matrycy; i++){
@@ -182,12 +151,13 @@ for (int i=0; i<liczba_kolumn_matrycy; i++){
   }
   j+=granice_dla_poszczegolnych_kolumn[i];
 }
-
+int odczyt_potencjometru=analogRead(PIN_POTENCJOMETR);
 byte bit_bazowy=0b00000001;
 float widmo_tab_do_wyslania[liczba_kolumn_matrycy];
-int maksymalna_glosnosc_mikrofonu = 2000;
+long int limit_skali_fft = map(odczyt_potencjometru, 0, 4095, 50, 4800);;
 for (int i=0; i<liczba_kolumn_matrycy; i++){
-  widmo_tab_do_wyslania[i]=map(widmo_tab_uporzadkowane[i], 0, maksymalna_glosnosc_mikrofonu, 0, 8);
+  int ilosc_diod=map(widmo_tab_uporzadkowane[i], 0, limit_skali_fft, 0, 8);
+  widmo_tab_do_wyslania[i] = constrain(ilosc_diod, 0, 8);
 }
 
 for (int i=0; i<liczba_kolumn_matrycy; i++){
